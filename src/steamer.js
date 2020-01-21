@@ -1,7 +1,7 @@
 'use strict';
 
 const Steamer = (() => {
-  const DEFAULT_CHUNK_SIZE = 256 * 1024 * 4; // 1Mb
+  const DEFAULT_CHUNK_SIZE = 256 * 1024 * 4 * 100; // 100 MB
 
   /**
    * Steamer is a helper class to ease the process of slicing a file in
