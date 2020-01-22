@@ -57,7 +57,7 @@ const clearEventQueue = (eventQueue, event) => {
  * state change. For example, updating `upload.progress` triggers
  * the `onprogress` callback.
  */
-function Upload(size, contentType, steamer) {
+function Upload(size, contentType, steamer, sessionUri) {
   // We need to queue events triggered before the callbacks are set.
   // Once a callback is set, we check the corresponding event queue
   // and fire its events.
@@ -72,7 +72,7 @@ function Upload(size, contentType, steamer) {
   this.size = size;
   this.contentType = contentType;
   this.steamer = steamer;
-  this.sessionUri = null;
+  this.sessionUri = sessionUri;
 
   const self = this;
   this.state = {
@@ -279,33 +279,6 @@ Upload.prototype = (function() {
   };
 })();
 
-/**
- * In order to be able to perform a resumable upload to GCS we need to
- * obtain a session URI from GCS. This method requests the initialization
- * of a resumable upload session to a server that proxies our requests
- * to GCS.
- */
-const getSessionUri = filename => {
-  const SESSION_ENDPOINT =
-    `https://dev-takeafile-com.appspot.com/_ah/api/gcsgatekeeper/v1/sessionuris`;
-  return fetch(SESSION_ENDPOINT, {
-    method: 'post',
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Content-Type': 'application/json'
-    },
-    mode: 'cors',
-    body: JSON.stringify({
-      bucketFile: filename
-    })
-  }).then(response => {
-    if (response.status !== 201 && response.status !== 200) {
-      throw new Error('Could not get session URL from GCS');
-    }
-    return response.json();
-  }).then(({ data }) => data);
-};
-
 const uploadChunk = (sessionUri, chunk, contentType, range) => {
   let options = {
     method: 'put',
@@ -349,36 +322,63 @@ const uploadChunk = (sessionUri, chunk, contentType, range) => {
   });
 };
 
-const doUpload = (upload, offset) => {
-  upload.steamer.next(offset).then(chunk => {
-    let range =
-      offset ? offset === RESUME_OFFSET
-                ? `bytes *`
-                : `bytes ${offset}-${offset + chunk.size -1}`
-             : `bytes 0-${chunk.size - 1}`;
-    range = `${range}/${upload.size}`;
-    return uploadChunk(upload.sessionUri, chunk, upload.contentType, range);
-  }).then(response => {
-    if (upload.currentState !== INPROGRESS) {
-      return;
-    }
+const doUpload = (upload, offset, retry = 0) => {
+  upload.steamer
+    .next(offset)
+    .then(chunk => {
+      let range;
 
-    if (response.done) {
-      return upload.done();
-    }
+      if (offset) {
+        if (offset === RESUME_OFFSET) {
+          // Request offset
+          range = `bytes *`;
+        }
+        else {
+          // Resume upload from offset
+          range = `bytes ${offset}-${offset + chunk.size -1}`;
+        }
+      }
+      else {
+        // Start upload from scratch
+        range = `bytes 0-${chunk.size - 1}`;
+      }
 
-    if (response.offset) {
-      upload.progress = offset;
-      return doUpload(upload, response.offset);
-    }
+      // Format range
+      range = `${range}/${upload.size}`;
 
-    throw new Error('Unexpected response');
-  }).catch(error => {
-    upload.error = error;
-    if (upload.currentState === INPROGRESS) {
-      doUpload(upload, RESUME_OFFSET);
-    }
-  });
+      return uploadChunk(upload.sessionUri, chunk, upload.contentType, range);
+    })
+    .then(response => {
+      if (upload.currentState !== INPROGRESS) {
+        return;
+      }
+
+      if (response.done) {
+        return upload.done();
+      }
+
+      if (response.offset) {
+        upload.progress = offset;
+        return doUpload(upload, response.offset);
+      }
+
+      throw new Error('Unexpected response');
+    })
+    .catch(error => {
+      upload.error = error;
+
+      if (upload.currentState === INPROGRESS && retry < 5) {
+        // Retry maximum 5 times, wait 5 seconds between retries
+
+        setTimeout(
+          () => {
+            doUpload(upload, RESUME_OFFSET, retry+1);
+          },
+          5000
+        );
+      }
+    })
+  ;
 };
 
 /**
@@ -390,21 +390,15 @@ const doUpload = (upload, offset) => {
  * 2.1. If one of these chunks of data fails to upload, retry until it succeeds
  *      or state.cancel() is called.
  */
-const run = (file) => {
+const run = (file, sessionUri, chunkSize) => {
   if (!file) {
     throw new Error('You need to provide a file to upload');
   }
 
-  // Create a new upload instance.
-  const upload = new Upload(file.size, file.type, new Steamer(file));
+  const steamer = new Steamer(file, chunkSize);
+  const upload = new Upload(file.size, file.type, steamer, sessionUri);
 
-  // Get a session URI from Google Cloud Storage.
-  getSessionUri(file.name).then(sessionUri => {
-    upload.sessionUri = sessionUri;
-    doUpload(upload);
-  }).catch(error => {
-    upload.error = error;
-  });
+  doUpload(upload, RESUME_OFFSET);
 
   return upload;
 };
