@@ -13,7 +13,10 @@ window.addEventListener('DOMContentLoaded', function() {
     const doneDiv = document.getElementById('done');
 
     const file = files[0];
-    const upload = gcsUploader.run(file);
+    const url = ''; // URL to GCS
+    const chunkSize = 256 * 1024 * 4 * 100; // 100 MB
+    const upload = gcsUploader.run(file, url, chunkSize);
+
     upload.onprogress = function(progress) {
       progressDiv.style.display = 'block';
       cancel.style.display = 'inline';
