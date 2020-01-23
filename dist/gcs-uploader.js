@@ -350,6 +350,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	}();
 	
 	var uploadChunk = function uploadChunk(upload, chunk, range) {
+	  var CancelToken = axios.CancelToken;
+	  var source = CancelToken.source();
 	  var progress = upload.state._progress;
 	
 	  var options = {
@@ -362,8 +364,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	      return true;
 	    },
 	    onUploadProgress: function onUploadProgress(chunkProgress) {
+	      if (upload.currentState !== INPROGRESS) {
+	        source.cancel();
+	        return;
+	      }
+	
 	      upload.progress = progress + chunkProgress.loaded;
-	    }
+	    },
+	    cancelToken: source.token
 	  };
 	
 	  if (!range.includes('*')) {

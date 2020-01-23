@@ -281,6 +281,8 @@ Upload.prototype = (function() {
 })();
 
 const uploadChunk = (upload, chunk, range) => {
+  const CancelToken = axios.CancelToken;
+  const source = CancelToken.source();
   const progress = upload.state._progress;
 
   let options = {
@@ -293,8 +295,14 @@ const uploadChunk = (upload, chunk, range) => {
       return true;
     },
     onUploadProgress: function(chunkProgress) {
+      if (upload.currentState !== INPROGRESS) {
+        source.cancel();
+        return;
+      }
+
       upload.progress = progress + chunkProgress.loaded;
-    }
+    },
+    cancelToken: source.token
   };
 
   if (!range.includes('*')) {
