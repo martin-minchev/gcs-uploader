@@ -280,54 +280,55 @@ Upload.prototype = (function() {
   };
 })();
 
-const uploadChunk = (sessionUri, chunk, contentType, range) => {
+const uploadChunk = (upload, chunk, range) => {
+  const progress = upload.state._progress;
+
   let options = {
-    url: sessionUri,
+    url: upload.sessionUri,
     method: 'put',
+    headers: {
+      'Access-Control-Allow-Origin': '*'
+    },
     validateStatus: function() {
       return true;
     },
-    onUploadProgress: function(progressEvent) {
-      console.log(progressEvent);
-    },
-  };
-
-  let headers = {
-    'Access-Control-Allow-Origin': '*'
+    onUploadProgress: function(chunkProgress) {
+      upload.progress = progress + chunkProgress.loaded;
+    }
   };
 
   if (!range.includes('*')) {
-    headers = Object.assign(headers, {
-      'Content-Length': chunk.size,
-      'Content-Type': contentType,
+    options.headers = Object.assign(options.headers, {
+      'Content-Type': upload.contentType,
       'Content-Range': range
     });
     options.data = chunk.data;
   }
 
-  options.headers = headers;
-
-  return axios.request(options)
-  .then(response => {
-    if (response.status === 200 || response.status == 201) {
-      // Upload completed!
-      return { done: true };
-    }
-
-    if (response.status === 308) {
-      // Chunk uploaded, but there is still pending data to send.
-      const rangeHeader = response.headers['range'];
-      const lastByteReceived = rangeHeader.split('-')[1];
-      if (!lastByteReceived) {
-        throw new Error(`Invalid 'Range' header received`);
+  return axios
+    .request(options)
+    .then(response => {
+      if (response.status === 200 || response.status == 201) {
+        // Upload completed!
+        return { done: true };
       }
-      return { offset: parseInt(lastByteReceived) }
-    }
 
-    // Something went wrong, the service is unavailable, so we need to stop
-    // for a bit and try to resume our upload.
-    return { offset: RESUME_OFFSET };
-  });
+      if (response.status === 308) {
+        // Chunk uploaded, but there is still pending data to send.
+        const rangeHeader = response.headers['range'];
+        const lastByteReceived = rangeHeader.split('-')[1];
+
+        if (!lastByteReceived) {
+          throw new Error(`Invalid 'Range' header received`);
+        }
+
+        return { offset: parseInt(lastByteReceived) }
+      }
+
+      // Something went wrong, the service is unavailable, so we need to stop
+      // for a bit and try to resume our upload.
+      return { offset: RESUME_OFFSET };
+    });
 };
 
 const doUpload = (upload, offset, retry = 0) => {
@@ -354,7 +355,7 @@ const doUpload = (upload, offset, retry = 0) => {
       // Format range
       range = `${range}/${upload.size}`;
 
-      return uploadChunk(upload.sessionUri, chunk, upload.contentType, range);
+      return uploadChunk(upload, chunk, range);
     })
     .then(response => {
       if (upload.currentState !== INPROGRESS) {
