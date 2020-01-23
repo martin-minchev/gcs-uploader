@@ -53,5 +53,8 @@
   "babelBoilerplateOptions": {
     "entryFileName": "gcs.js",
     "mainVarName": "gcsUploader"
+  },
+  "dependencies": {
+    "axios": "^0.19.2"
   }
 }
