@@ -33,6 +33,7 @@
 'use strict';
 
 import Steamer from './steamer.js';
+import * as axios from 'axios';
 
 const RESUME_OFFSET = '*';
 
@@ -281,8 +282,14 @@ Upload.prototype = (function() {
 
 const uploadChunk = (sessionUri, chunk, contentType, range) => {
   let options = {
+    url: sessionUri,
     method: 'put',
-    mode: 'cors'
+    validateStatus: function() {
+      return true;
+    },
+    onUploadProgress: function(progressEvent) {
+      console.log(progressEvent);
+    },
   };
 
   let headers = {
@@ -295,12 +302,13 @@ const uploadChunk = (sessionUri, chunk, contentType, range) => {
       'Content-Type': contentType,
       'Content-Range': range
     });
-    options.body = chunk.data;
+    options.data = chunk.data;
   }
 
   options.headers = headers;
 
-  return fetch(sessionUri, options).then(response => {
+  return axios.request(options)
+  .then(response => {
     if (response.status === 200 || response.status == 201) {
       // Upload completed!
       return { done: true };
@@ -308,7 +316,7 @@ const uploadChunk = (sessionUri, chunk, contentType, range) => {
 
     if (response.status === 308) {
       // Chunk uploaded, but there is still pending data to send.
-      const rangeHeader = response.headers.get('Range');
+      const rangeHeader = response.headers['range'];
       const lastByteReceived = rangeHeader.split('-')[1];
       if (!lastByteReceived) {
         throw new Error(`Invalid 'Range' header received`);
