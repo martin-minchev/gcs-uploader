@@ -439,7 +439,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 	
 	    if (response.offset) {
-	      upload.progress = offset;
+	      upload.progress = response.offset;
 	      return doUpload(upload, response.offset);
 	    }
 	
