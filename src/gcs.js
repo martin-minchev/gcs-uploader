@@ -398,7 +398,7 @@ const run = (file, sessionUri, chunkSize) => {
   const steamer = new Steamer(file, chunkSize);
   const upload = new Upload(file.size, file.type, steamer, sessionUri);
 
-  doUpload(upload, RESUME_OFFSET);
+  doUpload(upload);
 
   return upload;
 };
